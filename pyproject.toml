@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wpmchecker"
+version = "0.1.0"
+description = "Realtime WPM display for English learners using Python audio/Whisper backend and Electron overlay."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "faster-whisper>=1.0.0",
+  "numpy>=1.24",
+  "pyaudiowpatch>=0.2.12.6; platform_system == 'Windows'",
+  "soundcard>=0.4.3; platform_system == 'Windows'",
+  "webrtcvad-wheels>=2.0.14",
+  "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+wpmchecker = "wpmchecker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["tests"]

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WPMChecker Browser Probe</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; display: grid; place-items: center; height: 100vh; margin: 0; }
+      main { text-align: center; }
+      #wpm { font-size: 84px; font-weight: 800; line-height: 1; }
+      #meta { opacity: .8; margin-top: 12px; }
+      #level { width: 240px; height: 8px; background: #334155; border-radius: 99px; overflow: hidden; margin-top: 18px; }
+      #bar { height: 100%; width: 0%; background: #22c55e; transition: width .08s linear; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="wpm">--</div>
+      <div id="meta">connecting...</div>
+      <div id="level"><div id="bar"></div></div>
+    </main>
+    <script>
+      const wpm = document.getElementById('wpm');
+      const meta = document.getElementById('meta');
+      const bar = document.getElementById('bar');
+      function connect() {
+        const ws = new WebSocket('ws://127.0.0.1:8765');
+        ws.onopen = () => meta.textContent = 'connected';
+        ws.onclose = () => { meta.textContent = 'disconnected; retrying'; setTimeout(connect, 1000); };
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          wpm.textContent = data.display;
+          wpm.style.color = data.zone.color;
+          meta.textContent = `${data.source.toUpperCase()} · ${data.mode} · ${data.zone.name} · ${data.windowSeconds}s`;
+          bar.style.width = `${Math.round((data.level || 0) * 100)}%`;
+          bar.style.background = data.zone.color;
+        };
+      }
+      connect();
+    </script>
+  </body>
+</html>
