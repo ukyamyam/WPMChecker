@@ -20,8 +20,9 @@ function apply(data) {
   bar.style.background = data.zone.color;
 }
 
-function connect() {
-  socket = new WebSocket('ws://127.0.0.1:8765');
+async function connect() {
+  const token = await window.wpmchecker.getAuthToken();
+  socket = new WebSocket(`ws://127.0.0.1:8765/?token=${encodeURIComponent(token)}`);
   socket.addEventListener('open', () => { status.classList.add('on'); meta.textContent = 'connected'; });
   socket.addEventListener('close', () => { status.classList.remove('on'); meta.textContent = 'backend offline'; setTimeout(connect, 1000); });
   socket.addEventListener('message', (event) => apply(JSON.parse(event.data)));

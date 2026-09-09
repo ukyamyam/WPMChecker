@@ -1,24 +1,34 @@
 'use strict';
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SERVICE_ARGS = ['--source', 'system', '--model', 'base', 'serve'];
+const SERVICE_ARGS = ['--source', 'system', '--model', 'base'];
+const stoppedChildren = new WeakSet();
+
+function buildServiceArgs(authToken) {
+  const args = [...SERVICE_ARGS];
+  if (authToken) args.push('--auth-token', authToken);
+  args.push('serve');
+  return args;
+}
 
 function createBackendSpec({
   isPackaged,
   resourcesPath,
   appPath,
+  authToken,
   platform = process.platform,
   existsSync = fs.existsSync,
   env = process.env
 }) {
+  const args = buildServiceArgs(authToken);
   if (isPackaged) {
     const backendDir = path.join(resourcesPath, 'backend');
     return {
       command: path.join(backendDir, 'wpmchecker-backend.exe'),
-      args: [...SERVICE_ARGS],
+      args,
       cwd: backendDir
     };
   }
@@ -29,12 +39,12 @@ function createBackendSpec({
     : path.join(projectRoot, '.venv', 'bin', 'wpmchecker');
 
   if (existsSync(launcher)) {
-    return { command: launcher, args: [...SERVICE_ARGS], cwd: projectRoot };
+    return { command: launcher, args, cwd: projectRoot };
   }
 
   return {
     command: env.PYTHON || (platform === 'win32' ? 'python.exe' : 'python3'),
-    args: ['-m', 'wpmchecker', ...SERVICE_ARGS],
+    args: ['-m', 'wpmchecker', ...args],
     cwd: projectRoot
   };
 }
@@ -49,8 +59,30 @@ function startBackend(spec, { spawnImpl = spawn, onError = console.error } = {})
   return child;
 }
 
-function stopBackend(child) {
-  if (child && !child.killed) child.kill();
+function stopBackend(
+  child,
+  { platform = process.platform, spawnSyncImpl = spawnSync } = {}
+) {
+  if (!child || child.killed || stoppedChildren.has(child)) return;
+  stoppedChildren.add(child);
+
+  if (platform === 'win32' && Number.isInteger(child.pid)) {
+    const result = spawnSyncImpl(
+      'taskkill.exe',
+      ['/PID', String(child.pid), '/T', '/F'],
+      { windowsHide: true, stdio: 'ignore' }
+    );
+    if (result && result.error && !child.killed) child.kill();
+    return;
+  }
+
+  child.kill();
 }
 
-module.exports = { SERVICE_ARGS, createBackendSpec, startBackend, stopBackend };
+module.exports = {
+  SERVICE_ARGS,
+  buildServiceArgs,
+  createBackendSpec,
+  startBackend,
+  stopBackend
+};

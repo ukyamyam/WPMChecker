@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wpmchecker"
-version = "0.2.0"
+version = "0.2.1"
 description = "Realtime WPM display for English learners using Python audio/Whisper backend and Electron overlay."
 readme = "README.md"
 requires-python = ">=3.10"

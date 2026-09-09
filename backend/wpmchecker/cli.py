@@ -61,7 +61,7 @@ async def stage3(args) -> None:
 async def stage4(args) -> None:
     config = RuntimeConfig(source=args.source, backend=args.backend, model=args.model, mode=args.mode, window_seconds=args.window, mock_whisper=args.mock_whisper)
     engine = WpmEngine(config)
-    server = WpmWebSocketServer(engine, args.host, args.port)
+    server = WpmWebSocketServer(engine, args.host, args.port, args.auth_token)
     await server.run()
 
 
@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window", type=float, default=5.0, help="WPM window seconds, 3-10")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--auth-token", help=argparse.SUPPRESS)
     parser.add_argument("--mock-whisper", action="store_true", help="Use deterministic fake words for UI/pipeline testing")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("level", help="Stage 1: capture level meter")

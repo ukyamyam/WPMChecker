@@ -10,14 +10,15 @@ const {
   stopBackend
 } = require('../backend-process');
 
-const serviceArgs = ['--source', 'system', '--model', 'base', 'serve'];
+const serviceArgs = ['--source', 'system', '--model', 'base', '--auth-token', 'test-token', 'serve'];
 
 test('packaged app launches the embedded Windows backend executable', () => {
   const spec = createBackendSpec({
     isPackaged: true,
     resourcesPath: 'C:\\Program Files\\WPMChecker\\resources',
     appPath: 'C:\\unused',
-    platform: 'win32'
+    platform: 'win32',
+    authToken: 'test-token'
   });
 
   assert.equal(
@@ -36,6 +37,7 @@ test('development app uses the repository virtualenv launcher when present', () 
     resourcesPath: '/unused',
     appPath: electronDir,
     platform: 'linux',
+    authToken: 'test-token',
     existsSync: (candidate) => candidate === expected
   });
 
@@ -50,6 +52,7 @@ test('development app falls back to Python module execution', () => {
     resourcesPath: '/unused',
     appPath: path.join('/workspace', 'WPMChecker', 'electron'),
     platform: 'linux',
+    authToken: 'test-token',
     existsSync: () => false,
     env: { PYTHON: '/custom/python' }
   });
@@ -92,13 +95,28 @@ test('backend starts hidden and reports spawn errors', () => {
   assert.equal(reported, error);
 });
 
-test('backend shutdown terminates a live child only once', () => {
+test('backend shutdown terminates a live non-Windows child only once', () => {
   let kills = 0;
   const child = { killed: false, kill: () => { kills += 1; child.killed = true; } };
 
-  stopBackend(child);
-  stopBackend(child);
-  stopBackend(undefined);
+  stopBackend(child, { platform: 'linux' });
+  stopBackend(child, { platform: 'linux' });
+  stopBackend(undefined, { platform: 'linux' });
 
   assert.equal(kills, 1);
+});
+
+test('backend shutdown terminates the complete Windows process tree only once', () => {
+  const calls = [];
+  const child = { pid: 4242, killed: false, kill: () => assert.fail('must use taskkill') };
+  const spawnSyncImpl = (command, args, options) => calls.push({ command, args, options });
+
+  stopBackend(child, { platform: 'win32', spawnSyncImpl });
+  stopBackend(child, { platform: 'win32', spawnSyncImpl });
+
+  assert.deepEqual(calls, [{
+    command: 'taskkill.exe',
+    args: ['/PID', '4242', '/T', '/F'],
+    options: { windowsHide: true, stdio: 'ignore' }
+  }]);
 });
