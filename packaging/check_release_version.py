@@ -10,6 +10,7 @@ from pathlib import Path
 def read_versions(root: Path) -> dict[str, str]:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     electron = json.loads((root / "electron/package.json").read_text(encoding="utf-8"))
+    electron_lock = json.loads((root / "electron/package-lock.json").read_text(encoding="utf-8"))
     init_text = (root / "backend/wpmchecker/__init__.py").read_text(encoding="utf-8")
     match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', init_text, re.MULTILINE)
     if match is None:
@@ -17,6 +18,8 @@ def read_versions(root: Path) -> dict[str, str]:
     return {
         "pyproject.toml": pyproject["project"]["version"],
         "electron/package.json": electron["version"],
+        "electron/package-lock.json": electron_lock["version"],
+        'electron/package-lock.json packages[""]': electron_lock["packages"][""]["version"],
         "backend/wpmchecker/__init__.py": match.group(1),
     }
 
