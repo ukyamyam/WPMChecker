@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def test_release_version_check_accepts_matching_tag() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -31,7 +33,16 @@ def test_release_version_check_rejects_mismatched_tag() -> None:
     assert "does not match" in result.stderr
 
 
-def test_release_version_check_rejects_mismatched_package_lock(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("field", "expected_error"),
+    [
+        ("top-level", "electron/package-lock.json=9.9.9"),
+        ("root-package", 'electron/package-lock.json packages[""]=9.9.9'),
+    ],
+)
+def test_release_version_check_rejects_each_mismatched_package_lock_field(
+    tmp_path: Path, field: str, expected_error: str
+) -> None:
     root = Path(__file__).resolve().parents[1]
     for relative in (
         "packaging/check_release_version.py",
@@ -47,8 +58,10 @@ def test_release_version_check_rejects_mismatched_package_lock(tmp_path: Path) -
 
     lock_path = tmp_path / "electron/package-lock.json"
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    lock["version"] = "9.9.9"
-    lock["packages"][""]["version"] = "9.9.9"
+    if field == "top-level":
+        lock["version"] = "9.9.9"
+    else:
+        lock["packages"][""]["version"] = "9.9.9"
     lock_path.write_text(json.dumps(lock), encoding="utf-8")
 
     result = subprocess.run(
@@ -58,4 +71,4 @@ def test_release_version_check_rejects_mismatched_package_lock(tmp_path: Path) -
         text=True,
     )
     assert result.returncode != 0
-    assert "electron/package-lock.json" in result.stderr
+    assert expected_error in result.stderr
