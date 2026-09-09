@@ -1,9 +1,11 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const { createBackendSpec, startBackend, stopBackend } = require('./backend-process');
 
 let mainWindow;
 let backendProcess;
+let backendAuthToken;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -60,21 +62,37 @@ function buildMenu() {
   ]);
 }
 
-ipcMain.on('show-context-menu', () => {
-  buildMenu().popup({ window: mainWindow });
-});
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  ipcMain.on('show-context-menu', () => {
+    buildMenu().popup({ window: mainWindow });
+  });
 
-app.whenReady().then(() => {
-  const spec = createBackendSpec({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath()
+  ipcMain.handle('get-backend-token', () => backendAuthToken);
+
+  app.whenReady().then(() => {
+    backendAuthToken = crypto.randomBytes(32).toString('hex');
+    const spec = createBackendSpec({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+      authToken: backendAuthToken
+    });
+    backendProcess = startBackend(spec, {
+      onError: (error) => console.error('Failed to start WPMChecker backend:', error)
+    });
+    createWindow();
   });
-  backendProcess = startBackend(spec, {
-    onError: (error) => console.error('Failed to start WPMChecker backend:', error)
+
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
-  createWindow();
-});
-app.on('before-quit', () => stopBackend(backendProcess));
-app.on('window-all-closed', () => app.quit());
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('before-quit', () => stopBackend(backendProcess));
+  app.on('window-all-closed', () => app.quit());
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+}

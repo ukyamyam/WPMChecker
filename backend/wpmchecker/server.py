@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import time
 from dataclasses import asdict, dataclass
 from typing import Callable, Literal
+from urllib.parse import parse_qs, urlsplit
 
 import numpy as np
 import websockets
@@ -15,6 +17,13 @@ from .vad import WebRtcVadSegmenter
 from .whispering import FasterWhisperRecognizer, MockRecognizer, WhisperConfig
 from .words import WordDeduplicator
 from .wpm import Mode, SpeechInterval, WordEvent, WpmCalculator, WpmSnapshot
+
+
+def is_authorized_path(path: str, auth_token: str | None) -> bool:
+    if auth_token is None:
+        return True
+    tokens = parse_qs(urlsplit(path).query).get("token", [])
+    return len(tokens) == 1 and secrets.compare_digest(tokens[0], auth_token)
 
 
 @dataclass
@@ -103,10 +112,11 @@ class WpmEngine:
 
 
 class WpmWebSocketServer:
-    def __init__(self, engine: WpmEngine, host: str = "127.0.0.1", port: int = 8765):
+    def __init__(self, engine: WpmEngine, host: str = "127.0.0.1", port: int = 8765, auth_token: str | None = None):
         self.engine = engine
         self.host = host
         self.port = port
+        self.auth_token = auth_token
         self.clients: set[WebSocketServerProtocol] = set()
         self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=4)
 
@@ -119,6 +129,11 @@ class WpmWebSocketServer:
         self.queue.put_nowait(payload)
 
     async def handler(self, ws: WebSocketServerProtocol):
+        request = getattr(ws, "request", None)
+        path = getattr(request, "path", getattr(ws, "path", "/"))
+        if not is_authorized_path(path, self.auth_token):
+            await ws.close(code=1008, reason="Unauthorized")
+            return
         self.clients.add(ws)
         try:
             async for message in ws:

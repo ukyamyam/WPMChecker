@@ -1,6 +1,6 @@
 {
   "name": "wpmchecker-electron",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Always-on-top realtime WPM overlay for Windows",
   "main": "main.js",
   "author": "ukyamyam",
