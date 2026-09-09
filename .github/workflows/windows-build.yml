@@ -1,0 +1,95 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,build]"
+
+      - name: Test Python backend
+        run: python -m pytest -q
+
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Audit and test Electron shell
+        working-directory: electron
+        run: npm audit && npm test
+
+      - name: Freeze Python backend
+        run: pyinstaller --noconfirm --clean packaging/wpmchecker-backend.spec
+
+      - name: Smoke-test frozen backend
+        shell: pwsh
+        run: |
+          $backend = Resolve-Path "dist/wpmchecker-backend.exe"
+          $process = Start-Process -FilePath $backend -ArgumentList "--backend", "synthetic", "--mock-whisper", "serve" -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              if ($process.HasExited) {
+                throw "Frozen backend exited before opening port 8765 (exit $($process.ExitCode))"
+              }
+              try {
+                $client = [System.Net.Sockets.TcpClient]::new()
+                $client.Connect("127.0.0.1", 8765)
+                $client.Dispose()
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 500
+              }
+            }
+            if (-not $ready) {
+              throw "Frozen backend did not open port 8765"
+            }
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
+      - name: Build Windows installer and portable app
+        working-directory: electron
+        run: npm run build:win
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: WPMChecker-Windows-${{ github.sha }}
+          path: release/*.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*.exe

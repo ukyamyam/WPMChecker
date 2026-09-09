@@ -15,5 +15,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Build artifacts
+build/
+dist/
+release/
+
 # Model/cache/log outputs
 *.log

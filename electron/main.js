@@ -1,7 +1,9 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('node:path');
+const { createBackendSpec, startBackend, stopBackend } = require('./backend-process');
 
 let mainWindow;
+let backendProcess;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -62,6 +64,17 @@ ipcMain.on('show-context-menu', () => {
   buildMenu().popup({ window: mainWindow });
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  const spec = createBackendSpec({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath()
+  });
+  backendProcess = startBackend(spec, {
+    onError: (error) => console.error('Failed to start WPMChecker backend:', error)
+  });
+  createWindow();
+});
+app.on('before-quit', () => stopBackend(backendProcess));
 app.on('window-all-closed', () => app.quit());
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
