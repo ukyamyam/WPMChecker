@@ -1,171 +1,171 @@
 # WPMChecker
 
-WPMChecker is a Windows-focused realtime WPM (Words Per Minute) overlay for English learners. It listens to either the microphone or the PC's current default playback device via WASAPI loopback, recognizes English speech with `faster-whisper`, calculates WPM on the Python side, and sends display-only updates to a small Electron window over WebSocket.
+WPMChecker is a Windows 10/11 realtime WPM (Words Per Minute) overlay for English learners. It listens to the microphone or the current Windows playback device, recognizes English speech locally with `faster-whisper`, calculates WPM, and displays it in a small always-on-top window.
+
+## Install on Windows
+
+No Python or Node.js installation is required for the packaged app.
+
+1. Open [GitHub Releases](https://github.com/ukyamyam/WPMChecker/releases).
+2. Download one of these files:
+   - `WPMChecker-Setup-<version>-x64.exe` — normal installer; recommended.
+   - `WPMChecker-Portable-<version>-x64.exe` — portable version with no installation.
+3. Run the downloaded file.
+4. If Windows SmartScreen appears, select **More info → Run anyway**. The current community build is not code-signed.
+
+The Electron window starts and stops its bundled Python backend automatically. You do not need to open a terminal or install the source dependencies.
+
+### First launch
+
+The packaged application includes Python, audio libraries, Whisper runtime, and the desktop UI. The Whisper `base` speech model is downloaded on first launch and cached for later launches, so the first start requires an internet connection and may take a few minutes. Subsequent launches use the local cache.
+
+Windows may ask for microphone permission. Allow it if you want to use microphone input. System-audio mode captures the current default Windows playback device through WASAPI loopback.
+
+### Using the overlay
+
+Right-click the overlay to change:
+
+- **Input Source** — System audio or Microphone.
+- **WPM Mode** — Effective speech WPM or Elapsed-time WPM.
+- **Window Seconds** — 3, 5, 7, or 10 seconds.
+- **Quit** — closes both the overlay and bundled backend.
+
+The dot in the upper-right turns green after the local backend connects.
 
 ## Architecture
 
-WPMChecker intentionally uses two processes:
+WPMChecker uses two bundled processes:
 
-- **Python backend**: audio capture → VAD → faster-whisper → word timestamp stream → WPM calculation → WebSocket broadcast.
-- **Electron frontend**: a thin always-on-top window that only renders the latest WebSocket payload and forwards menu commands.
+- **Python backend**: audio capture → VAD → faster-whisper → word timestamps → WPM calculation → local WebSocket.
+- **Electron frontend**: always-on-top overlay, controls, and WPM display.
 
-All recognition, deduplication, source switching, and WPM math live in Python. Electron is deliberately small so the audio/Whisper path can be developed and verified independently first.
+The processes communicate only over `ws://127.0.0.1:8765`. The packaged Electron app launches `resources/backend/wpmchecker-backend.exe` and terminates it when the app exits.
 
-## Current stage layout
+`web/probe.html` remains available as a development-only browser client.
 
-- `backend/wpmchecker/audio.py`: microphone/system capture abstraction.
-- `backend/wpmchecker/vad.py`: WebRTC VAD segmenter.
-- `backend/wpmchecker/whispering.py`: `faster-whisper` wrapper and mock recognizer for UI tests.
-- `backend/wpmchecker/wpm.py`: effective/elapsed WPM calculation and speed zones.
-- `backend/wpmchecker/server.py`: WebSocket backend and runtime commands.
-- `web/probe.html`: simple browser client for stage 4 verification.
-- `electron/`: final small overlay window.
+## Build from source
 
-## Requirements
-
-### Windows runtime
+### Requirements
 
 - Windows 10/11.
-- Python 3.10+.
-- Node.js 20+ for Electron.
-- CPU is supported; GPU is optional and auto-detected by CTranslate2/faster-whisper.
+- Python 3.10+; Python 3.11 is used for release builds.
+- Node.js 20+.
+- CPU is supported; a compatible GPU is optional and auto-detected by CTranslate2/faster-whisper.
 
-### Python dependencies
-
-Installed by `pip install -e .`:
-
-- `faster-whisper`
-- `numpy`
-- `webrtcvad-wheels`
-- `websockets`
-- `soundcard` on Windows
-- `pyaudiowpatch` on Windows
-
-`faster-whisper` downloads the selected model on first use. The backend prints a model loading message; Hugging Face / faster-whisper show download progress through their cache tooling. Default model is `base`; `small` is also recommended. The default compute type is `int8` for CPU-friendly operation.
-
-## Setup
+### Development setup
 
 ```powershell
-# Clone
-gh repo clone ukyamyam/WPMChecker
+git clone https://github.com/ukyamyam/WPMChecker.git
 cd WPMChecker
 
-# Python backend
 py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,build]"
 
-# Electron frontend
 cd electron
 npm install
 cd ..
 ```
 
-On Linux/macOS development machines, system loopback is not enabled by this app. Use `--backend synthetic` to test the pipeline and UI without Windows audio.
-
-## Stage-by-stage verification
-
-Run every command from the repository root with the Python virtualenv activated.
-
-### 1. Verify default playback loopback or microphone levels
-
-```powershell
-# System audio from current default Windows playback device
-wpmchecker --source system level
-
-# Microphone
-wpmchecker --source mic level
-```
-
-You should see `level=...` values and bars change while YouTube, a podcast, AirPods output, or microphone speech is active.
-
-Backend selection:
-
-```powershell
-wpmchecker --source system --backend soundcard level
-wpmchecker --source system --backend pyaudiowpatch level
-```
-
-The default `--backend auto` tries `soundcard` first and falls back to `pyaudiowpatch`. The implementation re-resolves the default device periodically. If AirPods or another Bluetooth output becomes the OS default device, the capture reconnects to follow it instead of staying attached to an old endpoint.
-
-### 2. Verify VAD + faster-whisper word timestamps
-
-```powershell
-wpmchecker --source system --model base words
-```
-
-Expected console output:
-
-```text
-12345.67-12345.89 hello
-12346.02-12346.30 world
-```
-
-For UI/pipeline testing without downloading a model:
-
-```powershell
-wpmchecker --backend synthetic --mock-whisper words
-```
-
-### 3. Verify console WPM
-
-```powershell
-wpmchecker --source system --model base --mode effective --window 5 wpm
-```
-
-Modes:
-
-- `effective`: default. `words / VAD speech seconds * 60`. Silence is excluded from the denominator.
-- `elapsed`: `words / window seconds * 60`. Silence is included.
-
-If no speech is detected for 3 seconds, the display becomes `--`.
-
-### 4. Verify WebSocket + browser page
-
-```powershell
-wpmchecker --source system --model base serve
-```
-
-Open `web/probe.html` in a browser. It connects to `ws://127.0.0.1:8765` and displays WPM, mode, source, zone, and level.
-
-For a no-audio/no-model demo:
-
-```powershell
-wpmchecker --backend synthetic --mock-whisper serve
-```
-
-### 5. Run the Electron overlay
-
-Keep the backend running:
-
-```powershell
-wpmchecker --source system --model base serve
-```
-
-Then in another terminal:
+Start the desktop application from the repository root:
 
 ```powershell
 cd electron
 npm start
 ```
 
-The overlay is frameless, small, draggable, transparent, and always on top. Right-click it for:
+Development mode automatically finds `.venv\Scripts\wpmchecker.exe` and launches the backend. On Linux/macOS, audio capture falls back to synthetic input because Windows WASAPI loopback is unavailable.
 
-- Input source: System audio / Microphone.
-- WPM mode: Effective speech WPM / Elapsed-time WPM.
-- Window seconds: 3 / 5 / 7 / 10.
-- Quit.
+## Stage-by-stage backend verification
 
-## WPM definition and speed zones
+Run these commands from the repository root.
 
-Default WPM is **effective speech WPM**:
+### 1. Check audio levels
+
+```powershell
+# Current default Windows playback device
+.\.venv\Scripts\wpmchecker.exe --source system level
+
+# Microphone
+.\.venv\Scripts\wpmchecker.exe --source mic level
+```
+
+Backend-specific diagnostics:
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --source system --backend soundcard level
+.\.venv\Scripts\wpmchecker.exe --source system --backend pyaudiowpatch level
+```
+
+The default `--backend auto` tries `soundcard` first and then `pyaudiowpatch`. WPMChecker periodically re-resolves the default device so switching to AirPods or another output can be followed automatically.
+
+### 2. Check VAD and Whisper words
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --source system --model base words
+```
+
+Expected output resembles:
+
+```text
+12345.67-12345.89 hello
+12346.02-12346.30 world
+```
+
+No-audio/no-model test:
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --backend synthetic --mock-whisper words
+```
+
+### 3. Check console WPM
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --source system --model base --mode effective --window 5 wpm
+```
+
+### 4. Check WebSocket and browser probe
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --source system --model base serve
+```
+
+Open `web/probe.html` in a browser. It connects to `ws://127.0.0.1:8765`.
+
+For a deterministic smoke test:
+
+```powershell
+.\.venv\Scripts\wpmchecker.exe --backend synthetic --mock-whisper serve
+```
+
+## Build Windows packages locally
+
+```powershell
+# Repository root
+.\.venv\Scripts\pyinstaller.exe --noconfirm --clean packaging/wpmchecker-backend.spec
+
+cd electron
+npm ci
+npm test
+npm run build:win
+```
+
+Outputs are written to `release/`:
+
+- `WPMChecker-Setup-<version>-x64.exe`
+- `WPMChecker-Portable-<version>-x64.exe`
+
+The GitHub Actions workflow `.github/workflows/windows-build.yml` performs the same build on `windows-latest`, smoke-tests the frozen backend, uploads workflow artifacts, and attaches `.exe` files to releases for `v*` tags.
+
+## WPM calculation
+
+Default mode is **effective speech WPM**:
 
 ```text
 WPM = words_in_recent_window / VAD_speech_seconds_in_recent_window * 60
 ```
 
-This avoids unrealistic drops when a speaker pauses. `elapsed` mode is available when you explicitly want silence included.
+This excludes pauses. `elapsed` mode includes silence. If no speech is detected for three seconds, the display becomes `--`.
 
 Speed zones:
 
@@ -174,38 +174,36 @@ Speed zones:
 - `180–239`: fast, yellow.
 - `>= 240`: very fast, red.
 
-An EMA with alpha `0.3` smooths the display so individual recognition bursts do not make the number jump excessively.
+An EMA with alpha `0.3` smooths the display.
 
-## Recognition/chunking strategy
+## Troubleshooting
 
-The backend receives 30 ms mono chunks, runs WebRTC VAD, and closes an utterance after a trailing silence window. Each utterance segment goes to `faster-whisper` with `word_timestamps=True`. Returned words are stored as:
+### Overlay says `backend offline`
 
-```python
-(word, start_time, end_time)
-```
+- Wait for the first-run Whisper model download to finish.
+- Ensure another WPMChecker/backend process is not already using port `8765`.
+- Close and reopen WPMChecker.
 
-When a future sliding-window recognizer is enabled, overlapping chunks can produce duplicate words. `WordDeduplicator` already prevents double counts by comparing normalized word text and near-identical timestamps while allowing genuine repeated words with different timestamps.
+### System audio is silent
 
-## Troubleshooting loopback silence
+1. Confirm audio is playing through the expected Windows output device.
+2. Open **Settings → System → Sound → Output** and verify the default output.
+3. If using AirPods/Bluetooth, make sure they are the active output device.
+4. Use the backend-specific level commands above to determine whether `soundcard` or `pyaudiowpatch` works on the machine.
+5. Switch to microphone from the overlay menu to confirm the pipeline is running.
 
-If system audio is silent:
+### Microphone is silent
 
-1. Confirm the browser/player is audible through Windows.
-2. Open Windows **Settings → System → Sound → Output** and check the selected default output device.
-3. If using AirPods/Bluetooth, make sure they are the active output device, not just connected.
-4. Run:
-   ```powershell
-   wpmchecker --source system --backend soundcard level
-   wpmchecker --source system --backend pyaudiowpatch level
-   ```
-   Use whichever backend shows levels.
-5. Toggle to microphone from the overlay context menu to confirm the backend is alive.
-6. Restart the backend after changing audio drivers if both loopback backends remain silent.
+Open **Settings → Privacy & security → Microphone** and allow desktop applications to access the microphone.
 
 ## Tests
 
 ```bash
 python -m pytest -q
+cd electron
+npm ci
+npm audit
+npm test
 ```
 
-The automated tests cover WPM math, speech idle behavior, zones, word counting, and overlap deduplication. Hardware audio and Whisper accuracy require manual stage checks on Windows.
+Automated tests cover WPM math, speech idle behavior, zones, deduplication, CLI entrypoint behavior, packaged backend path resolution, process lifecycle, and package configuration. Windows audio hardware and recognition accuracy still require a target-device check.

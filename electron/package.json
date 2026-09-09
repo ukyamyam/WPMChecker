@@ -1,12 +1,54 @@
 {
   "name": "wpmchecker-electron",
-  "version": "0.1.0",
-  "description": "Small always-on-top WPMChecker overlay",
+  "version": "0.2.0",
+  "description": "Always-on-top realtime WPM overlay for Windows",
   "main": "main.js",
+  "author": "ukyamyam",
+  "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test",
+    "build:win": "electron-builder --win --x64"
   },
   "devDependencies": {
-    "electron": "^42.4.1"
+    "electron": "^42.11.3",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.ukyamyam.wpmchecker",
+    "productName": "WPMChecker",
+    "asar": true,
+    "directories": {
+      "output": "../release"
+    },
+    "files": [
+      "main.js",
+      "backend-process.js",
+      "preload.js",
+      "renderer.js",
+      "renderer.html"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/wpmchecker-backend.exe",
+        "to": "backend/wpmchecker-backend.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
+    }
   }
 }
